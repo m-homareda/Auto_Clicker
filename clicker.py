@@ -1,75 +1,107 @@
 import pyautogui
 import time
 import sys
-from pynput import keyboard  # pynputライブラリを使用
+import tkinter as tk
+from pynput import keyboard
 
 # --- 設定項目 ---
 
-# ▼ クリックしたい座標 (X, Y) を指定してください
-CLICK_X = 500
-CLICK_Y = 500
-
 # ▼ クリック間隔（秒）
-INTERVAL = 0.2
+INTERVAL = 0.1
 
-# ▼ プログラムを終了するためのキー（'q' などの単一の文字）
+# ▼ プログラムを終了するためのキー
 STOP_KEY = 'q'
 
 # -----------------
 
-# 終了フラグ（グローバル変数）
 stop_program = False
+target_pos = (0, 0) # 座標保存用
+
+def get_target_coordinates():
+    """
+    半透明の全画面ウィンドウを表示し、クリックされた座標を取得する関数
+    """
+    print("座標設定モード: クリックしたい場所をクリックしてください...")
+    
+    # tkinterのルートウィンドウ作成
+    root = tk.Tk()
+    
+    # 全画面表示設定
+    root.attributes('-fullscreen', True) # フルスクリーン
+    root.attributes('-alpha', 0.3)       # 透明度 (0.1~1.0)
+    root.configure(bg='black')           # 背景色
+    root.lift()                          # 最前面へ
+    
+    # 説明ラベル
+    label = tk.Label(root, text="連打したい場所をクリックしてください", 
+                     font=("Helvetica", 30), fg="white", bg="black")
+    label.pack(expand=True)
+
+    # クリック時の処理
+    def on_click(event):
+        global target_pos
+        target_pos = (event.x_root, event.y_root)
+        root.destroy() # ウィンドウを閉じる
+
+    # マウス左クリック (<Button-1>) をバインド
+    root.bind('<Button-1>', on_click)
+    
+    # 閉じるボタン等で強制終了された場合
+    root.protocol("WM_DELETE_WINDOW", lambda: sys.exit())
+
+    root.mainloop()
+    return target_pos
 
 def on_press(key):
-    """ キーが押された時に呼び出される関数 """
     global stop_program
     try:
-        # 押されたキーが設定したSTOP_KEYかチェック
-        if key.char == STOP_KEY:
-            print(f"\n'{STOP_KEY}' キーが検出されました。プログラムを終了します。")
+        if hasattr(key, 'char') and key.char == STOP_KEY:
+            print(f"\n'{STOP_KEY}' キーが検出されました。終了します。")
             stop_program = True
-            # リスナーを停止して、プログラムが終了できるようにする
             return False
-    except AttributeError:
-        # 'q' 以外（Shiftキーなど）の特殊キーが押された場合は無視
+    except:
         pass
 
 def main():
-    print("--- クリック自動化プログラム開始 ---")
-    print(f"座標 ({CLICK_X}, {CLICK_Y}) を {INTERVAL} 秒ごとにクリックします。")
-    print(f"（どのウィンドウがアクティブでも）'{STOP_KEY}' キーを押すと終了します。")
+    # 1. 最初に座標を取得する
+    x, y = get_target_coordinates()
+    
+    print("---------------------------------")
+    print(f"設定完了！ 座標 ({x}, {y}) を連打します。")
+    print("3秒後に開始します...")
+    print(f"中断するには '{STOP_KEY}' キーを押してください。")
     print("---------------------------------")
     
-    # フェイルセーフ機能（画面左上隅にマウスを移動で強制停止）
+    time.sleep(3) # ユーザーが準備する時間
+
+    # フェイルセーフ（マウスを左上にやると止まる機能）
     pyautogui.FAILSAFE = True
 
-    # キーボードリスナーを別スレッド（バックグラウンド）で開始
+    # キーボード監視開始
     listener = keyboard.Listener(on_press=on_press)
     listener.start()
 
     try:
-        # 終了フラグ（stop_program）が True になるまでループ
         while not stop_program:
+            pyautogui.click(x, y)
             
-            # 指定した座標で左クリックを実行
-            pyautogui.click(CLICK_X, CLICK_Y)
-            
-            # 終了フラグをチェックしながら待機
-            wait_time = INTERVAL
-            while wait_time > 0 and not stop_program:
-                time.sleep(0.1)
-                wait_time -= 0.1
+            # 待機処理（終了フラグをこまめにチェック）
+            end_time = time.time() + INTERVAL
+            while time.time() < end_time:
+                if stop_program:
+                    break
+                time.sleep(0.01) # 短いスリープでCPU負荷を下げる
 
     except pyautogui.FailSafeException:
-        print("\n緊急停止（フェイルセーフ）が作動しました。プログラムを終了します。")
+        print("\nフェイルセーフ作動（マウス左上）により停止しました。")
     except KeyboardInterrupt:
-        print("\nプログラムが手動で中断されました。")
+        print("\n手動停止されました。")
     except Exception as e:
-        print(f"\nエラーが発生しました: {e}")
+        print(f"\nエラー: {e}")
     finally:
         if listener.is_alive():
             listener.stop()
-        print("--- プログラム終了 ---")
+        print("--- 終了 ---")
 
 if __name__ == "__main__":
     main()
